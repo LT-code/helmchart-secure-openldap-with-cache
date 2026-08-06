@@ -1,0 +1,9 @@
+directory:
+  domain: example.internal
+  baseDN: dc=example,dc=internal
+  organization: Example IAM
+
+credentials:
+  adminPassword: change-me
+  configPassword: change-me
+  lamConfigPassword: change-me

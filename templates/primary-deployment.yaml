@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openldap-iam.fullname" . }}
+  labels:
+    {{- include "openldap-iam.openldapDeploymentLabels" (dict "root" . "role" "primary") | nindent 4 }}
+spec:
+  replicas: {{ .Values.primary.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openldap-iam.primarySelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openldap-iam.primarySelectorLabels" . | nindent 8 }}
+      annotations:
+        {{- include "openldap-iam.openldapPodAnnotations" . | nindent 8 }}
+    spec:
+      {{- include "openldap-iam.openldapPodSettings" (dict "root" . "workload" .Values.primary "defaultAntiAffinity" .Values.replica.enabled) | nindent 6 }}
+      containers:
+        - name: openldap
+          image: "{{ .Values.openldap.image.repository }}:{{ .Values.openldap.image.tag }}"
+          imagePullPolicy: {{ .Values.openldap.image.pullPolicy }}
+          ports:
+            - name: ldaps
+              containerPort: 636
+              protocol: TCP
+          env:
+            {{- include "openldap-iam.openldapDirectoryEnv" (dict "root" . "organization" .Values.directory.organization "includeOrganizationalUnits" true) | nindent 12 }}
+            {{- include "openldap-iam.openldapCredentialsEnv" . | nindent 12 }}
+            {{- include "openldap-iam.openldapSchemaEnv" . | nindent 12 }}
+            - name: ENABLE_BACKUP
+              value: {{ ternary "TRUE" "FALSE" .Values.primary.backup.enabled | quote }}
+            - name: BACKUP_INTERVAL
+              value: {{ .Values.primary.backup.intervalMinutes | quote }}
+            - name: BACKUP_RETENTION
+              value: {{ .Values.primary.backup.retentionMinutes | quote }}
+            {{- include "openldap-iam.openldapTLSEnv" . | nindent 12 }}
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "/opt/bootstrap/bootstrap.sh"]
+          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 60 "readinessInitialDelaySeconds" 5) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.primary.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "openldap-iam.openldapVolumeMounts" . | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.primary.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "openldap-iam.primaryPVCName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "openldap-iam.openldapSharedVolumes" . | nindent 8 }}

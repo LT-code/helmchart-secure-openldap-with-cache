@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openldap-iam.writeServiceName" . }}
+  labels:
+    {{- include "openldap-iam.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ldap-service
+  {{- with .Values.services.write.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.services.write.type }}
+  selector:
+    {{- include "openldap-iam.primarySelectorLabels" . | nindent 4 }}
+  ports:
+    - name: ldaps
+      port: {{ .Values.services.write.port }}
+      targetPort: ldaps
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openldap-iam.readServiceName" . }}
+  labels:
+    {{- include "openldap-iam.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ldap-service
+  {{- with .Values.services.read.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.services.read.type }}
+  selector:
+    {{- include "openldap-iam.ldapSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: ldaps
+      port: {{ .Values.services.read.port }}
+      targetPort: ldaps
+      protocol: TCP

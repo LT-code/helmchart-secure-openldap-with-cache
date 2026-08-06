@@ -1,0 +1,128 @@
+# Install this chart in the iam namespace:
+# helm upgrade --install openldap ./openldap-iam -n iam --create-namespace
+
+nameOverride: ""
+# Kept stable so the certificate scripts and LDAP client endpoints have predictable names.
+fullnameOverride: openldap
+clusterDomain: cluster.local
+
+commonLabels: {}
+
+directory:
+  domain: example.internal
+  baseDN: dc=example,dc=internal
+  organization: Example IAM
+  peopleOU: people
+  groupsOU: groups
+
+credentials:
+  create: true
+  existingSecret: ""
+  adminPassword: REPLACE_ME_OPENLDAP_ADMIN_PASSWORD
+  configPassword: REPLACE_ME_OPENLDAP_CONFIG_PASSWORD
+  lamConfigPassword: REPLACE_ME_LAM_CONFIGURATION_PASSWORD
+
+openldap:
+  image:
+    repository: ghcr.io/nfrastack/container-openldap
+    tag: latest
+    pullPolicy: IfNotPresent
+  schemaType: rfc2307bis
+  enablePasswordPolicy: true
+  logType: CONSOLE
+  tlsVerifyClient: never
+  terminationGracePeriodSeconds: 60
+  podSecurityContext:
+    fsGroup: 389
+    fsGroupChangePolicy: OnRootMismatch
+
+tls:
+  rolloutLabel:
+    key: openldap-tls-reload
+    value: "true"
+
+primary:
+  replicas: 1
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: nfs-csi-fast-safe
+    accessModes:
+      - ReadWriteMany
+    size: 5Gi
+    keep: true
+  backup:
+    enabled: true
+    intervalMinutes: 1440
+    retentionMinutes: 10080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+replica:
+  enabled: true
+  replicas: 1
+  storage:
+    sizeLimit: 5Gi
+  requireDifferentNode: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+      ephemeral-storage: 6Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+services:
+  read:
+    type: ClusterIP
+    port: 636
+    annotations: {}
+  write:
+    type: ClusterIP
+    port: 636
+    annotations: {}
+
+lam:
+  enabled: true
+  fullnameOverride: ldap-account-manager
+  replicas: 1
+  image:
+    repository: ghcr.io/ldapaccountmanager/lam
+    tag: latest
+    pullPolicy: IfNotPresent
+  language: en_US
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: nfs-csi-fast-safe
+    accessModes:
+      - ReadWriteMany
+    size: 1Gi
+    keep: true
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

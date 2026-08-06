@@ -1,0 +1,131 @@
+{{- if .Values.lam.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openldap-iam.lamName" . }}
+  labels:
+    {{- include "openldap-iam.labels" . | nindent 4 }}
+    app.kubernetes.io/name: ldap-account-manager
+spec:
+  replicas: {{ .Values.lam.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openldap-iam.lamSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openldap-iam.lamSelectorLabels" . | nindent 8 }}
+      annotations:
+        {{- if .Values.credentials.create }}
+        checksum/credentials: {{ include (print $.Template.BasePath "/credentials-secret.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.lam.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.lam.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.lam.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ldap-account-manager
+          image: "{{ .Values.lam.image.repository }}:{{ .Values.lam.image.tag }}"
+          imagePullPolicy: {{ .Values.lam.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: LAM_SKIP_PRECONFIGURE
+              value: "false"
+            - name: LAM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openldap-iam.credentialsSecretName" . }}
+                  key: lam-config-password
+            - name: LAM_LANG
+              value: {{ .Values.lam.language | quote }}
+            - name: LDAP_SERVER
+              value: {{ include "openldap-iam.writeURI" . | quote }}
+            - name: LDAP_DOMAIN
+              value: {{ .Values.directory.domain | quote }}
+            - name: LDAP_BASE_DN
+              value: {{ .Values.directory.baseDN | quote }}
+            - name: LDAP_USERS_DN
+              value: {{ printf "ou=%s,%s" .Values.directory.peopleOU .Values.directory.baseDN | quote }}
+            - name: LDAP_GROUPS_DN
+              value: {{ printf "ou=%s,%s" .Values.directory.groupsOU .Values.directory.baseDN | quote }}
+            - name: LDAP_USER
+              value: {{ printf "cn=admin,%s" .Values.directory.baseDN | quote }}
+            - name: LAM_DISABLE_TLS_CHECK
+              value: "false"
+            - name: LDAPTLS_CACERT
+              value: /etc/ldap/openldap-trust/ca.crt
+            - name: LDAPTLS_REQCERT
+              value: demand
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.lam.resources | nindent 12 }}
+          volumeMounts:
+            - name: lam-data
+              mountPath: /var/lib/ldap-account-manager/config
+            - name: openldap-ca
+              mountPath: /etc/ldap/openldap-trust
+              readOnly: true
+            - name: openldap-client-config
+              mountPath: /etc/ldap/ldap.conf
+              subPath: ldap.conf
+              readOnly: true
+      volumes:
+        - name: lam-data
+          {{- if .Values.lam.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "openldap-iam.lamPVCName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: openldap-ca
+          configMap:
+            name: {{ include "openldap-iam.caConfigMapName" . }}
+            defaultMode: 292
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: openldap-client-config
+          configMap:
+            name: {{ include "openldap-iam.caConfigMapName" . }}
+            defaultMode: 292
+            items:
+              - key: ldap.conf
+                path: ldap.conf
+{{- end }}

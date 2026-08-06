@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "clusterDomain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "directory": {
+      "type": "object",
+      "required": [
+        "domain",
+        "baseDN",
+        "organization"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseDN": {
+          "type": "string",
+          "minLength": 1
+        },
+        "organization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "peopleOU": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupsOU": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "adminPassword": {
+          "type": "string"
+        },
+        "configPassword": {
+          "type": "string"
+        },
+        "lamConfigPassword": {
+          "type": "string"
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
+        },
+        "write": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
+        }
+      }
+    },
+    "primary": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        }
+      }
+    },
+    "replica": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        }
+      }
+    }
+  }
+}

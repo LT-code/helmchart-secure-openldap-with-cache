@@ -1,0 +1,54 @@
+{{- if .Values.replica.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openldap-iam.replicaName" . }}
+  labels:
+    {{- include "openldap-iam.openldapDeploymentLabels" (dict "root" . "role" "replica") | nindent 4 }}
+spec:
+  replicas: {{ .Values.replica.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openldap-iam.replicaSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openldap-iam.replicaSelectorLabels" . | nindent 8 }}
+      annotations:
+        {{- include "openldap-iam.openldapPodAnnotations" . | nindent 8 }}
+    spec:
+      {{- include "openldap-iam.openldapPodSettings" (dict "root" . "workload" .Values.replica "defaultAntiAffinity" .Values.replica.requireDifferentNode) | nindent 6 }}
+      containers:
+        - name: openldap-replica
+          image: "{{ .Values.openldap.image.repository }}:{{ .Values.openldap.image.tag }}"
+          imagePullPolicy: {{ .Values.openldap.image.pullPolicy }}
+          ports:
+            - name: ldaps
+              containerPort: 636
+              protocol: TCP
+          env:
+            {{- include "openldap-iam.openldapDirectoryEnv" (dict "root" . "organization" (printf "%s Replica" .Values.directory.organization)) | nindent 12 }}
+            {{- include "openldap-iam.openldapCredentialsEnv" . | nindent 12 }}
+            - name: PROVIDER_URI
+              value: {{ include "openldap-iam.writeURI" . | quote }}
+            {{- include "openldap-iam.openldapSchemaEnv" . | nindent 12 }}
+            - name: ENABLE_BACKUP
+              value: "FALSE"
+            {{- include "openldap-iam.openldapTLSEnv" . | nindent 12 }}
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "/opt/bootstrap/replica.sh"]
+          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 120) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.replica.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "openldap-iam.openldapVolumeMounts" . | nindent 12 }}
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: {{ .Values.replica.storage.sizeLimit }}
+        {{- include "openldap-iam.openldapSharedVolumes" . | nindent 8 }}
+{{- end }}

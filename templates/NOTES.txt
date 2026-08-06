@@ -1,0 +1,19 @@
+OpenLDAP has been installed in namespace {{ .Release.Namespace }}.
+
+Read endpoint:
+  {{ include "openldap-iam.readURI" . }}
+
+Read/write endpoint:
+  {{ include "openldap-iam.writeURI" . }}
+
+TLS Secret/{{ include "openldap-iam.tlsSecretName" . }} is externally managed.
+Use scripts/create-openldap-ca.sh once and scripts/update-openldap-certificate.sh for rotation.
+
+{{- if .Values.lam.enabled }}
+LDAP Account Manager:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "openldap-iam.lamName" . }} 8080:{{ .Values.lam.service.port }}
+  Then open http://localhost:8080
+{{- end }}
+
+Admin DN:
+  cn=admin,{{ .Values.directory.baseDN }}

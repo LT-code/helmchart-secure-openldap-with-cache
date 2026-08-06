@@ -1,0 +1,19 @@
+{{- if and .Values.lam.enabled .Values.lam.persistence.enabled (not .Values.lam.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "openldap-iam.lamPVCName" . }}
+  labels:
+    {{- include "openldap-iam.labels" . | nindent 4 }}
+  {{- if .Values.lam.persistence.keep }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+spec:
+  storageClassName: {{ .Values.lam.persistence.storageClass | quote }}
+  accessModes:
+    {{- toYaml .Values.lam.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.lam.persistence.size }}
+{{- end }}

@@ -1,0 +1,38 @@
+name: Package Helm Chart
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v4.2.0
+
+      - name: Package chart
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          helm package ./ \
+            --version "${VERSION}" \
+            --app-version "${VERSION}" \
+            --destination ./dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          gh release create "${GITHUB_REF_NAME}" \
+            "./dist/openldap-iam-${VERSION}.tgz" \
+            --verify-tag \
+            --generate-notes

@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openldap-iam.bootstrapName" . }}
+  labels:
+    {{- include "openldap-iam.labels" . | nindent 4 }}
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+
+    export LDAPTLS_CACERT=/certs/ldap-selfsigned-ca/ldap-selfsigned-ca.crt
+    export LDAPTLS_REQCERT=demand
+    LDAP_URI="ldaps://localhost:636"
+    ADMIN_DN="cn=admin,${BASE_DN}"
+
+    echo "Waiting for OpenLDAP to accept authenticated connections..."
+    attempt=0
+    until ldapwhoami -x -H "${LDAP_URI}" -D "${ADMIN_DN}" -w "${ADMIN_PASS}" >/dev/null 2>&1; do
+      attempt=$((attempt + 1))
+      if [ "${attempt}" -ge 60 ]; then
+        echo "OpenLDAP did not become ready in time" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
+    add_ou() {
+      ou_name="$1"
+      description="$2"
+      ou_dn="ou=${ou_name},${BASE_DN}"
+
+      if ldapsearch -LLL -x -H "${LDAP_URI}" \
+        -D "${ADMIN_DN}" -w "${ADMIN_PASS}" \
+        -b "${ou_dn}" -s base "(objectClass=*)" dn >/dev/null 2>&1; then
+        echo "${ou_dn} already exists"
+        return
+      fi
+
+      ldapadd -x -H "${LDAP_URI}" -D "${ADMIN_DN}" -w "${ADMIN_PASS}" <<LDIF
+    dn: ${ou_dn}
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: ${ou_name}
+    description: ${description}
+    LDIF
+    }
+
+    add_ou "${PEOPLE_OU}" "User accounts"
+    add_ou "${GROUPS_OU}" "Groups"
+
+    CONFIG_DN="cn=config"
+    echo "Enabling the LDAP Sync provider overlay on the primary..."
+    attempt=0
+    until ldapwhoami -x -H "${LDAP_URI}" -D "${CONFIG_DN}" -w "${CONFIG_PASS}" >/dev/null 2>&1; do
+      attempt=$((attempt + 1))
+      if [ "${attempt}" -ge 60 ]; then
+        echo "The configuration database did not become ready in time" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
+    DB_DN="$(ldapsearch -LLL -x -H "${LDAP_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "cn=config" \
+      "(&(objectClass=olcDatabaseConfig)(olcSuffix=${BASE_DN}))" dn \
+      | awk '/^dn: / {sub(/^dn: /, ""); print; exit}')"
+
+    if [ -z "${DB_DN}" ]; then
+      echo "Could not find the LDAP database configuration DN" >&2
+      exit 1
+    fi
+
+    MODULE_DN="$(ldapsearch -LLL -x -H "${LDAP_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "cn=config" "(objectClass=olcModuleList)" dn \
+      | awk '/^dn: / {sub(/^dn: /, ""); print; exit}')"
+
+    if [ -z "${MODULE_DN}" ]; then
+      echo "Could not find the OpenLDAP module configuration DN" >&2
+      exit 1
+    fi
+
+    if ! ldapsearch -LLL -x -H "${LDAP_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "${MODULE_DN}" -s base olcModuleLoad \
+      | grep -q 'syncprov'; then
+      ldapmodify -x -H "${LDAP_URI}" -D "${CONFIG_DN}" -w "${CONFIG_PASS}" <<LDIF
+    dn: ${MODULE_DN}
+    changetype: modify
+    add: olcModuleLoad
+    olcModuleLoad: syncprov
+    LDIF
+    fi
+
+    OVERLAY_DN="olcOverlay=syncprov,${DB_DN}"
+    if ! ldapsearch -LLL -x -H "${LDAP_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "${OVERLAY_DN}" -s base "(objectClass=*)" dn >/dev/null 2>&1; then
+      ldapadd -x -H "${LDAP_URI}" -D "${CONFIG_DN}" -w "${CONFIG_PASS}" <<LDIF
+    dn: ${OVERLAY_DN}
+    objectClass: olcOverlayConfig
+    objectClass: olcSyncProvConfig
+    olcOverlay: syncprov
+    olcSpCheckpoint: 100 10
+    olcSpSessionlog: 1000
+    LDIF
+    fi
+
+    echo "OpenLDAP bootstrap and provider configuration completed"
+
+  replica.sh: |
+    #!/bin/sh
+    set -eu
+
+    export LDAPTLS_CACERT=/certs/ldap-selfsigned-ca/ldap-selfsigned-ca.crt
+    export LDAPTLS_REQCERT=demand
+    LOCAL_URI="ldaps://localhost:636"
+    CONFIG_DN="cn=config"
+    ADMIN_DN="cn=admin,${BASE_DN}"
+
+    echo "Waiting for the local OpenLDAP replica to initialize..."
+    attempt=0
+    until ldapwhoami -x -H "${LOCAL_URI}" -D "${CONFIG_DN}" -w "${CONFIG_PASS}" >/dev/null 2>&1; do
+      attempt=$((attempt + 1))
+      if [ "${attempt}" -ge 90 ]; then
+        echo "The replica configuration database did not become ready" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
+    DB_DN="$(ldapsearch -LLL -x -H "${LOCAL_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "cn=config" \
+      "(&(objectClass=olcDatabaseConfig)(olcSuffix=${BASE_DN}))" dn \
+      | awk '/^dn: / {sub(/^dn: /, ""); print; exit}')"
+
+    if [ -z "${DB_DN}" ]; then
+      echo "Could not find the replica database configuration DN" >&2
+      exit 1
+    fi
+
+    if ldapsearch -LLL -x -H "${LOCAL_URI}" \
+      -D "${CONFIG_DN}" -w "${CONFIG_PASS}" \
+      -b "${DB_DN}" -s base olcSyncrepl \
+      | grep -q '^olcSyncrepl:'; then
+      echo "Replica synchronization is already configured"
+      exit 0
+    fi
+
+    echo "Waiting for the primary LDAP Sync provider..."
+    attempt=0
+    until ldapsearch -LLL -x -H "${PROVIDER_URI}" \
+      -D "${ADMIN_DN}" -w "${ADMIN_PASS}" \
+      -b "" -s base supportedControl 2>/dev/null \
+      | grep -q '1.3.6.1.4.1.4203.1.9.1.1'; do
+      attempt=$((attempt + 1))
+      if [ "${attempt}" -ge 120 ]; then
+        echo "The primary did not expose the LDAP Sync control in time" >&2
+        exit 1
+      fi
+      sleep 5
+    done
+
+    ldapdelete -x -H "${LOCAL_URI}" -D "${ADMIN_DN}" -w "${ADMIN_PASS}" \
+      -r "${BASE_DN}" >/dev/null 2>&1 || true
+
+    SYNCREPL_VALUE="rid=001 provider=${PROVIDER_URI} bindmethod=simple binddn=\"${ADMIN_DN}\" credentials=\"${ADMIN_PASS}\" searchbase=\"${BASE_DN}\" type=refreshAndPersist retry=\"5 12 30 +\" timeout=5 schemachecking=on tls_cacert=/certs/ldap-selfsigned-ca/ldap-selfsigned-ca.crt tls_reqcert=demand"
+    SYNCREPL_B64="$(printf '%s' "${SYNCREPL_VALUE}" | base64 | tr -d '\n')"
+
+    ldapmodify -x -H "${LOCAL_URI}" -D "${CONFIG_DN}" -w "${CONFIG_PASS}" <<LDIF
+    dn: ${DB_DN}
+    changetype: modify
+    add: olcSyncrepl
+    olcSyncrepl:: ${SYNCREPL_B64}
+    -
+    add: olcUpdateRef
+    olcUpdateRef: ${PROVIDER_URI}
+    LDIF
+
+    echo "Read-only replica synchronization configured"
