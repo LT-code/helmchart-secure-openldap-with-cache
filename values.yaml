@@ -24,8 +24,8 @@ credentials:
 
 openldap:
   image:
-    repository: ghcr.io/nfrastack/container-openldap
-    tag: latest
+    repository: docker.io/nfrastack/openldap
+    tag: 2.6-8.0.2
     pullPolicy: IfNotPresent
   schemaType: rfc2307bis
   enablePasswordPolicy: true
@@ -104,6 +104,9 @@ lam:
     tag: latest
     pullPolicy: IfNotPresent
   language: en_US
+  podSecurityContext:
+    fsGroup: 33
+    fsGroupChangePolicy: OnRootMismatch
   persistence:
     enabled: true
     existingClaim: ""

@@ -23,6 +23,8 @@ spec:
         {{- end }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.lam.podSecurityContext | nindent 8 }}
       {{- with .Values.lam.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
@@ -35,6 +37,29 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: initialize-lam-config
+          image: "{{ .Values.lam.image.repository }}:{{ .Values.lam.image.tag }}"
+          imagePullPolicy: {{ .Values.lam.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - >-
+              cp -R -n --no-preserve=ownership
+              /var/lib/ldap-account-manager/config/.
+              /config/
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 33
+            runAsGroup: 33
+          volumeMounts:
+            - name: lam-data
+              mountPath: /config
+        {{- include "openldap-iam.waitForPrimaryInitContainer" (dict "root" . "caVolume" "openldap-ca" "caMountPath" "/etc/ldap/openldap-trust" "caFile" "/etc/ldap/openldap-trust/ca.crt") | nindent 8 }}
       containers:
         - name: ldap-account-manager
           image: "{{ .Values.lam.image.repository }}:{{ .Values.lam.image.tag }}"

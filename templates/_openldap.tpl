@@ -72,6 +72,50 @@ tolerations:
       key: config-password
 {{- end }}
 
+{{/* Block dependent workloads until the primary accepts authenticated LDAPS binds. */}}
+{{- define "openldap-iam.waitForPrimaryInitContainer" -}}
+{{- $root := .root -}}
+- name: wait-for-openldap-primary
+  image: "{{ $root.Values.openldap.image.repository }}:{{ $root.Values.openldap.image.tag }}"
+  imagePullPolicy: {{ $root.Values.openldap.image.pullPolicy }}
+  command:
+    - /bin/sh
+    - -ec
+    - |
+      export LDAPTLS_CACERT="${CA_FILE}"
+      export LDAPTLS_REQCERT=demand
+      echo "Waiting for the primary OpenLDAP service at ${LDAP_URI}..."
+      until timeout 10 ldapwhoami -x -H "${LDAP_URI}" \
+        -D "${ADMIN_DN}" -w "${ADMIN_PASS}" >/dev/null 2>&1; do
+        sleep 5
+      done
+      echo "Primary OpenLDAP is ready"
+  env:
+    - name: LDAP_URI
+      value: {{ include "openldap-iam.writeURI" $root | quote }}
+    - name: ADMIN_DN
+      value: {{ printf "cn=admin,%s" $root.Values.directory.baseDN | quote }}
+    - name: ADMIN_PASS
+      valueFrom:
+        secretKeyRef:
+          name: {{ include "openldap-iam.credentialsSecretName" $root }}
+          key: admin-password
+    - name: CA_FILE
+      value: {{ .caFile | quote }}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 389
+    runAsGroup: 389
+  volumeMounts:
+    - name: {{ .caVolume }}
+      mountPath: {{ .caMountPath }}
+      readOnly: true
+{{- end }}
+
 {{- define "openldap-iam.openldapSchemaEnv" -}}
 - name: SCHEMA_TYPE
   value: {{ .Values.openldap.schemaType | quote }}

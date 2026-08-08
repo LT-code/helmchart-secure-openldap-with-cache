@@ -42,7 +42,7 @@ spec:
             postStart:
               exec:
                 command: ["/bin/sh", "/opt/bootstrap/bootstrap.sh"]
-          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 60 "readinessInitialDelaySeconds" 5) | nindent 10 }}
+          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 230 "readinessInitialDelaySeconds" 5) | nindent 10 }}
           resources:
             {{- toYaml .Values.primary.resources | nindent 12 }}
           volumeMounts:

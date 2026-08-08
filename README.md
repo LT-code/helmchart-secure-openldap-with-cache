@@ -73,6 +73,8 @@ Example cron command:
 
 - `replica.requireDifferentNode=true` requires at least two schedulable nodes.
 - The replica has no PVC and fully resynchronizes after pod replacement.
+- The replica and LAM wait for an authenticated LDAPS connection to the ready primary before starting.
+- LAM's persistent configuration volume is initialized from the image defaults without overwriting existing files.
 - Both persistent PVCs explicitly use `nfs-csi-fast-safe` by default.
 - If `fullnameOverride` changes, pass matching `READ_SERVICE` and `WRITE_SERVICE` values to the certificate script.
 - StorageClass and PVC resources use `helm.sh/resource-policy: keep` by default.

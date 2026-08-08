@@ -20,6 +20,8 @@ spec:
         {{- include "openldap-iam.openldapPodAnnotations" . | nindent 8 }}
     spec:
       {{- include "openldap-iam.openldapPodSettings" (dict "root" . "workload" .Values.replica "defaultAntiAffinity" .Values.replica.requireDifferentNode) | nindent 6 }}
+      initContainers:
+        {{- include "openldap-iam.waitForPrimaryInitContainer" (dict "root" . "caVolume" "tls" "caMountPath" "/certs" "caFile" "/certs/ldap-selfsigned-ca/ldap-selfsigned-ca.crt") | nindent 8 }}
       containers:
         - name: openldap-replica
           image: "{{ .Values.openldap.image.repository }}:{{ .Values.openldap.image.tag }}"
@@ -41,7 +43,7 @@ spec:
             postStart:
               exec:
                 command: ["/bin/sh", "/opt/bootstrap/replica.sh"]
-          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 120) | nindent 10 }}
+          {{- include "openldap-iam.openldapProbes" (dict "startupFailureThreshold" 640) | nindent 10 }}
           resources:
             {{- toYaml .Values.replica.resources | nindent 12 }}
           volumeMounts:
